@@ -264,30 +264,94 @@ function calcMainForceWarning(ai, chip, pricePct) {
 }
 
 function genRecommendations(ai, chip) {
-  const rsi = ai?.rsi ?? 50;
+  const rsi   = ai?.rsi   ?? 50;
+  const tScore = ai?.tScore ?? 50;
+  const s1    = ai?.s1    ?? "—";
+  const r1    = ai?.r1    ?? "—";
+  const stop  = ai?.stop  ?? "—";
+  const ma20  = ai?.ma20  != null ? +ai.ma20.toFixed(2) : "—";
+  const ma60  = ai?.ma60  != null ? +ai.ma60.toFixed(2) : "—";
+  const kdK   = ai?.kdK   ?? 50;
+  const dif   = ai?.dif   ?? 0;
+  const dea   = ai?.dea   ?? 0;
+  const volStatus  = ai?.volStatus  ?? "";
+  const maStatus   = ai?.maStatus   ?? "";
+  const macdStatus = ai?.macdStatus ?? "";
+
   const bulls = [];
-  if (rsi > 70) {
-    bulls.push("短線偏強但追高風險高");
-    bulls.push("等待回測支撐區再考慮進場");
-    bulls.push("可分批停利，鎖定獲利");
-  } else if (rsi > 60) {
-    bulls.push("短線偏強，趨勢向上");
-    bulls.push("可分批布局，嚴格設好停損");
-  } else if (rsi < 30) {
-    bulls.push("短線超賣，有反彈機會");
-    bulls.push("量能配合轉強後再確認入場");
-    bulls.push("嚴設停損，防守為主");
-  } else if (rsi < 40) {
-    bulls.push("短線偏弱，暫時觀望");
-    bulls.push("等待跌深反彈訊號確認");
-  } else {
-    bulls.push("等待量能放大再行動");
-    bulls.push("設好支撐壓力再進場");
+
+  // ① RSI 狀態
+  if (rsi > 78)
+    bulls.push(`RSI ${rsi.toFixed(1)} 嚴重超買，短線隨時拉回，建議不追高，等回測 ${s1} 支撐再評估`);
+  else if (rsi > 70)
+    bulls.push(`RSI ${rsi.toFixed(1)} 進入超買區，短線漲幅過大，可分批停利保護獲利`);
+  else if (rsi > 60)
+    bulls.push(`RSI ${rsi.toFixed(1)} 偏強但未過熱，趨勢向上，回檔至 ${ma20} 附近可考慮布局`);
+  else if (rsi < 25)
+    bulls.push(`RSI ${rsi.toFixed(1)} 極度超賣，短線有強彈機會，量能放大確認後再進場`);
+  else if (rsi < 35)
+    bulls.push(`RSI ${rsi.toFixed(1)} 超賣，等待量能轉強訊號，守住 ${s1} 再分批承接`);
+  else if (rsi < 45)
+    bulls.push(`RSI ${rsi.toFixed(1)} 偏弱，暫時觀望，等跌深反彈或守穩 ${ma20} 再行動`);
+  else
+    bulls.push(`RSI ${rsi.toFixed(1)} 中性，等待突破 ${r1} 壓力或量能明顯放大再介入`);
+
+  // ② 均線 / 趨勢
+  if (maStatus.includes("多頭排列"))
+    bulls.push(`均線多頭排列（MA20:${ma20}↑），回測不破 ${ma20} 視為健康整理，可持股`);
+  else if (maStatus.includes("空頭排列"))
+    bulls.push(`均線空頭排列（MA20:${ma20}↓），反彈至 ${ma20} 附近視為壓力，宜減碼`);
+  else if (maStatus.includes("短中期偏多"))
+    bulls.push(`短中期均線偏多，但長線 MA60:${ma60} 待確認，操作以短線為主`);
+  else
+    bulls.push(`均線糾結整理，等待均線方向明確（觀察 MA20:${ma20} 是否站穩）再行動`);
+
+  // ③ KD 訊號
+  if (kdK < 20)
+    bulls.push(`KD K值 ${kdK.toFixed(0)} 低檔，留意底部黃金交叉訊號，一旦出現可短多`);
+  else if (kdK > 80)
+    bulls.push(`KD K值 ${kdK.toFixed(0)} 高檔鈍化，追高風險增加，已持股可設移動停利`);
+
+  // ④ MACD
+  if (dif > 0 && dif > dea)
+    bulls.push(`MACD 多頭擴張（DIF>${dea > 0 ? "+" : ""}${dea.toFixed(2)}），趨勢仍多，持股信心偏正向`);
+  else if (dif < 0 && dif < dea)
+    bulls.push(`MACD 空頭擴張，多方動能不足，不宜重押，輕倉觀察為主`);
+  else if (dif > 0 && dif < dea)
+    bulls.push(`MACD 多頭收斂，短線動能減弱，留意是否死亡交叉`);
+
+  // ⑤ 量價
+  if (volStatus === "放量上漲")
+    bulls.push(`今日放量上漲，量價配合，趨勢向上，持股或跟進，停損設 ${stop}`);
+  else if (volStatus === "放量下跌")
+    bulls.push(`放量下跌，賣壓沉重，務必控管風險，跌破 ${s1} 應果斷停損`);
+  else if (volStatus === "縮量回檔")
+    bulls.push(`縮量回檔屬正常整理，守住 ${s1} 支撐有機會再攻，可低接`);
+  else
+    bulls.push(`量能平穩，等待放量突破 ${r1} 再確認多方訊號`);
+
+  // ⑥ 籌碼面
+  if (chip) {
+    const f5 = chip.foreign5, t5 = chip.trust5, tot5 = chip.total5;
+    if (f5 > 3000)
+      bulls.push(`外資近5日大買超 +${f5.toLocaleString()} 張，主力資金進駐，籌碼面強勢`);
+    else if (f5 > 500)
+      bulls.push(`外資近5日買超 +${f5.toLocaleString()} 張，籌碼偏正向，可偏多操作`);
+    else if (f5 < -3000)
+      bulls.push(`外資近5日賣超 ${f5.toLocaleString()} 張，主力撤退，謹慎追高`);
+    else if (f5 < -500)
+      bulls.push(`外資近5日小幅賣超 ${f5.toLocaleString()} 張，籌碼分歧，操作宜保守`);
+    if (t5 > 500)
+      bulls.push(`投信近5日買超 +${t5.toLocaleString()} 張，法人認同，有助股價支撐`);
+    else if (t5 < -500)
+      bulls.push(`投信近5日賣超 ${t5.toLocaleString()} 張，需觀察是否持續`);
   }
-  if (chip && chip.foreign5 < -2000) bulls.push("外資持續賣超，需特別留意");
-  else if (chip && chip.foreign5 > 2000) bulls.push("外資大量買超，訊號偏多");
-  if (!bulls.some(b => b.includes("跌破"))) bulls.push("跌破關鍵支撐應控制風險");
-  return bulls.slice(0, 5);
+
+  // ⑦ 停損提醒（固定最後一條）
+  bulls.push(`停損參考：收盤跌破 ${stop} 應出場，不宜凹單`);
+
+  // 去重、取前5條
+  return [...new Map(bulls.map(b => [b, b])).values()].slice(0, 5);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
