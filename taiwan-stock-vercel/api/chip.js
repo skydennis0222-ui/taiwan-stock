@@ -21,16 +21,23 @@ export default async function handler(req, res) {
     const instJson   = await instResp.json();
     const marginJson = marginResp.ok ? await marginResp.json() : { data: [] };
 
-    // Aggregate institutional investors by date → units: 張 (= 1000 shares)
+    // 先偵測 FinMind 回傳單位：抽樣第一筆，若 buy < 100000 代表已是「張」；否則是「股」需 /1000
+    const sample = (instJson.data || [])[0];
+    const sampleVal = sample ? Math.max(Number(sample.buy || 0), Number(sample.sell || 0)) : 0;
+    const divisor = sampleVal > 100000 ? 1000 : 1;   // 股→張 or 張→張
+
+    // Aggregate institutional investors by date
     const byDate = {};
     for (const row of instJson.data || []) {
       const d = row.date;
       if (!byDate[d]) byDate[d] = { date: d, foreign: 0, trust: 0, dealer: 0, total: 0 };
-      const net  = Math.round((Number(row.buy) - Number(row.sell)) / 1000);
+      const net  = Math.round((Number(row.buy || 0) - Number(row.sell || 0)) / divisor);
       const name = row.name || "";
-      if (name.includes("外資") || name.includes("外陸資")) byDate[d].foreign += net;
-      else if (name.includes("投信"))                       byDate[d].trust   += net;
-      else if (name.includes("自營"))                       byDate[d].dealer  += net;
+      // 外資：外陸資、外資及陸資、外資自營商 → 歸入外資
+      if      (name.includes("外陸資") || (name.includes("外資") && !name.includes("自營")))
+                                                    byDate[d].foreign += net;
+      else if (name.includes("投信"))               byDate[d].trust   += net;
+      else if (name.includes("自營"))               byDate[d].dealer  += net;
     }
     const instData = Object.values(byDate)
       .sort((a, b) => (a.date > b.date ? 1 : -1))
