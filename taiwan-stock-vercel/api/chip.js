@@ -1,5 +1,5 @@
 // Vercel Serverless Function: /api/chip
-// 三大法人 + 融資融券 proxy (FinMind, no auth required for free datasets)
+// 三大法人 + 融資融券 proxy (FinMind)
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   const { code } = req.query;
@@ -21,25 +21,44 @@ export default async function handler(req, res) {
     const instJson   = await instResp.json();
     const marginJson = marginResp.ok ? await marginResp.json() : { data: [] };
 
-    // 先偵測 FinMind 回傳單位：抽樣第一筆，若 buy < 100000 代表已是「張」；否則是「股」需 /1000
-    const sample = (instJson.data || [])[0];
-    const sampleVal = sample ? Math.max(Number(sample.buy || 0), Number(sample.sell || 0)) : 0;
-    const divisor = sampleVal > 100000 ? 1000 : 1;   // 股→張 or 張→張
+    const rows = instJson.data || [];
 
-    // Aggregate institutional investors by date
+    // 用第一筆 buy 或 sell > 0 的資料偵測單位（避免取到 0 值列）
+    const nonZero = rows.find(r => Number(r.buy || 0) > 0 || Number(r.sell || 0) > 0);
+    const sampleVal = nonZero
+      ? Math.max(Number(nonZero.buy || 0), Number(nonZero.sell || 0))
+      : 0;
+    // FinMind 可能回傳「股」(需 /1000) 或「張」(直接用)
+    // 台股散戶單日 1 張 = 1000 股；法人通常幾千張，若 sampleVal > 500000 視為股
+    const divisor = sampleVal > 500000 ? 1000 : 1;
+
+    // FinMind 機構名稱：中文或英文皆相容
+    // 英文版: Foreign_Institutional_Investors, Investment_Trust, Dealer_self, Dealer_Hedging, Foreign_Dealer_Self
+    // 中文版: 外資及陸資(不含外資自營商), 投信, 自營商(自行買賣), 自營商(避險), 外資自營商
+    const isForeign = n =>
+      n === "Foreign_Institutional_Investors" ||
+      n.includes("外資及陸資") ||
+      n.includes("外陸資") ||
+      n === "外資";
+    const isTrust = n =>
+      n === "Investment_Trust" ||
+      n.includes("投信");
+    const isDealer = n =>
+      n.includes("Dealer") ||   // Dealer_self, Dealer_Hedging, Foreign_Dealer_Self
+      n.includes("自營");        // 自營商(自行買賣), 自營商(避險), 外資自營商
+
+    // Aggregate by date
     const byDate = {};
-    for (const row of instJson.data || []) {
+    for (const row of rows) {
       const d = row.date;
       if (!byDate[d]) byDate[d] = { date: d, foreign: 0, trust: 0, dealer: 0, total: 0 };
       const net  = Math.round((Number(row.buy || 0) - Number(row.sell || 0)) / divisor);
       const name = row.name || "";
-      // 外資及陸資(不含外資自營商) / 外資及陸資 / 外陸資 → 外資
-      // 注意：不能用 !name.includes("自營") 因括號說明中也含「自營」
-      if      (name.includes("外資及陸資") || name.includes("外陸資") || name === "外資")
-                                                    byDate[d].foreign += net;
-      else if (name.includes("投信"))               byDate[d].trust   += net;
-      else if (name.includes("自營"))               byDate[d].dealer  += net;
+      if      (isForeign(name)) byDate[d].foreign += net;
+      else if (isTrust(name))   byDate[d].trust   += net;
+      else if (isDealer(name))  byDate[d].dealer  += net;
     }
+
     const instData = Object.values(byDate)
       .sort((a, b) => (a.date > b.date ? 1 : -1))
       .map(d => ({ ...d, total: d.foreign + d.trust + d.dealer }))
@@ -56,15 +75,8 @@ export default async function handler(req, res) {
       short_buy:      Number(r.ShortSaleBuy               || 0),
     }));
 
-    res.setHeader("Cache-Control", "no-store");
-    return res.status(200).json({
-      inst: instData, margin: marginData,
-      _debug: {
-        totalRawRows: (instJson.data || []).length,
-        sampleVal, divisor,
-        first3: (instJson.data || []).slice(0, 3),
-      },
-    });
+    res.setHeader("Cache-Control", "s-maxage=300, stale-while-revalidate=600");
+    return res.status(200).json({ inst: instData, margin: marginData });
   } catch (err) {
     return res.status(500).json({ error: err.message || "chip fetch failed" });
   }
