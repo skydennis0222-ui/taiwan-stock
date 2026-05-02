@@ -35,17 +35,20 @@ export default async function handler(req, res) {
     // FinMind 機構名稱：中文或英文皆相容
     // 英文版: Foreign_Institutional_Investors, Investment_Trust, Dealer_self, Dealer_Hedging, Foreign_Dealer_Self
     // 中文版: 外資及陸資(不含外資自營商), 投信, 自營商(自行買賣), 自營商(避險), 外資自營商
+    // Foreign: 任何 "Foreign" 開頭但不含 "Dealer" 的名稱，或中文外資名稱
+    // 已知: Foreign_Institutional_Investors / Foriegnr / Foreign_Institutional_Investor
     const isForeign = n =>
-      n === "Foreign_Institutional_Investors" ||
+      (n.startsWith("Foreign") && !n.includes("Dealer")) ||
       n.includes("外資及陸資") ||
       n.includes("外陸資") ||
       n === "外資";
     const isTrust = n =>
       n === "Investment_Trust" ||
       n.includes("投信");
+    // Dealer: 自行買賣、避險、外資自營商
     const isDealer = n =>
-      n.includes("Dealer") ||   // Dealer_self, Dealer_Hedging, Foreign_Dealer_Self
-      n.includes("自營");        // 自營商(自行買賣), 自營商(避險), 外資自營商
+      n.includes("Dealer") ||
+      n.includes("自營");
 
     // Aggregate by date
     const byDate = {};
@@ -75,11 +78,8 @@ export default async function handler(req, res) {
       short_buy:      Number(r.ShortSaleBuy               || 0),
     }));
 
-    // _debug: 列出所有出現的機構名稱（確認後可移除）
-    const uniqueNames = [...new Set(rows.map(r => r.name))];
-
-    res.setHeader("Cache-Control", "no-store");
-    return res.status(200).json({ inst: instData, margin: marginData, _debug: { uniqueNames, divisor, sampleVal } });
+    res.setHeader("Cache-Control", "s-maxage=300, stale-while-revalidate=600");
+    return res.status(200).json({ inst: instData, margin: marginData });
   } catch (err) {
     return res.status(500).json({ error: err.message || "chip fetch failed" });
   }
