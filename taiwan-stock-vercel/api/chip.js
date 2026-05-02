@@ -33,8 +33,9 @@ export default async function handler(req, res) {
       if (!byDate[d]) byDate[d] = { date: d, foreign: 0, trust: 0, dealer: 0, total: 0 };
       const net  = Math.round((Number(row.buy || 0) - Number(row.sell || 0)) / divisor);
       const name = row.name || "";
-      // 外資：外陸資、外資及陸資、外資自營商 → 歸入外資
-      if      (name.includes("外陸資") || (name.includes("外資") && !name.includes("自營")))
+      // 外資及陸資(不含外資自營商) / 外資及陸資 / 外陸資 → 外資
+      // 注意：不能用 !name.includes("自營") 因括號說明中也含「自營」
+      if      (name.includes("外資及陸資") || name.includes("外陸資") || name === "外資")
                                                     byDate[d].foreign += net;
       else if (name.includes("投信"))               byDate[d].trust   += net;
       else if (name.includes("自營"))               byDate[d].dealer  += net;
