@@ -56,8 +56,15 @@ export default async function handler(req, res) {
       short_buy:      Number(r.ShortSaleBuy               || 0),
     }));
 
-    res.setHeader("Cache-Control", "s-maxage=300, stale-while-revalidate=600");
-    return res.status(200).json({ inst: instData, margin: marginData });
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(200).json({
+      inst: instData, margin: marginData,
+      _debug: {
+        totalRawRows: (instJson.data || []).length,
+        sampleVal, divisor,
+        first3: (instJson.data || []).slice(0, 3),
+      },
+    });
   } catch (err) {
     return res.status(500).json({ error: err.message || "chip fetch failed" });
   }
