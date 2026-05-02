@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   ComposedChart, Bar, Line, XAxis, YAxis,
   ReferenceLine, ResponsiveContainer, Cell, LineChart, Tooltip,
@@ -57,6 +57,17 @@ function calcKD(h, l, c, p = 9) {
   return { K, D };
 }
 
+// 布林通道 Bollinger Bands (20 期, ±2σ)
+function calcBB(c, p = 20, k = 2) {
+  return c.map((_, i) => {
+    if (i < p - 1) return { upper: null, mid: null, lower: null };
+    const s = c.slice(i - p + 1, i + 1);
+    const m = s.reduce((a, b) => a + b, 0) / p;
+    const std = Math.sqrt(s.reduce((a, b) => a + (b - m) ** 2, 0) / p);
+    return { upper: m + k * std, mid: m, lower: m - k * std };
+  });
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 //  Technical Analysis
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -106,7 +117,6 @@ function analyzeStock(price, candles, ind) {
   const strongSupport = f(ma60);
   const stopLoss = f(ma60 * 0.97);
 
-  // Technical score
   let tScore = 50;
   if (price > ma5 && ma5 > ma20 && ma20 > ma60) tScore += 15;
   else if (price < ma5 && ma5 < ma20 && ma20 < ma60) tScore -= 15;
@@ -122,7 +132,6 @@ function analyzeStock(price, candles, ind) {
   else if (kdK > 80 && kdD > 80) tScore -= 10;
   tScore = Math.max(0, Math.min(100, Math.round(tScore)));
 
-  // Win rate & signal (without chip — will merge later)
   let winRate = 50;
   if (trend.includes("多")) winRate += 8;
   if (trend.includes("空")) winRate -= 8;
@@ -153,14 +162,11 @@ function analyzeStock(price, candles, ind) {
     tScore, winRate, conclusion, techConclude,
     trendLabel: tScore >= 60 ? "偏強" : tScore >= 45 ? "中性" : "偏弱",
     techLabel:  rsi > 70 ? "過熱" : tScore >= 60 ? "偏強" : tScore >= 45 ? "中性" : "偏弱",
-    // Paths
     path1cond: `突破 ${r1}`, path1target: f(r1 * 1.04),
     path2cond: `跌破 ${s1}`, path2target: f((s1 + ma20) / 2),
     path3cond: `跌破 ${strongSupport}`, path3target: stopLoss,
-    // Entry
     entry: `${f(price * 0.97)}～${f(price * 0.99)}`,
-    stop: stopLoss,
-    t1: r1, t2: r2,
+    stop: stopLoss, t1: r1, t2: r2,
   };
 }
 
@@ -169,44 +175,34 @@ function analyzeStock(price, candles, ind) {
 // ═══════════════════════════════════════════════════════════════════════════════
 function analyzeChip(instData, marginData) {
   if (!instData.length) return null;
-
   let cScore = 50;
   const rec5 = instData.slice(-5);
   const total5   = rec5.reduce((s, d) => s + d.total,   0);
   const foreign5 = rec5.reduce((s, d) => s + d.foreign, 0);
   const trust5   = rec5.reduce((s, d) => s + d.trust,   0);
-
   if      (total5 >  5000) cScore += 20;
   else if (total5 >  1000) cScore += 10;
   else if (total5 < -5000) cScore -= 20;
   else if (total5 < -1000) cScore -= 10;
-
   if      (foreign5 >  3000) cScore += 10;
   else if (foreign5 < -3000) cScore -= 10;
-
   if      (trust5 >  500) cScore += 5;
   else if (trust5 < -500) cScore -= 5;
-
   if (marginData.length >= 2) {
     const mChg = marginData.at(-1).margin_balance - marginData.at(-2).margin_balance;
     if (mChg < 0) cScore += 8;
     else if (mChg > 0) cScore -= 5;
   }
-
   cScore = Math.max(0, Math.min(100, Math.round(cScore)));
-
-  // 10-day aggregates
   const rec10 = instData.slice(-10);
   const mainNet10  = rec10.reduce((s, d) => s + d.dealer,  0);
   const totalNet10 = rec10.reduce((s, d) => s + d.total,   0);
-
   const chipLabel  = cScore >= 60 ? "偏多" : cScore >= 45 ? "觀察" : "偏空";
   const chipConc   = foreign5 < -1000
     ? "外資持續賣超，若股價同步上漲代表籌碼分歧，追高風險高。"
     : foreign5 >  1000
     ? "外資持續買超，籌碼面偏正向，支撐股價上行。"
     : "法人動向中性，籌碼面尚待觀察。";
-
   return { cScore, total5, foreign5, trust5, mainNet10, totalNet10, chipLabel, chipConc };
 }
 
@@ -214,14 +210,12 @@ function calcFullSignal(ai, chip) {
   const t = ai?.tScore ?? 50;
   const c = chip?.cScore ?? 50;
   const total = Math.round(t * 0.4 + c * 0.4 + 50 * 0.2);
-
   let action, char, color, desc;
   if      (total >= 72) { action = "強力做多"; char = "買"; color = "#f87171"; desc = "技術與籌碼均強，可積極布局"; }
   else if (total >= 58) { action = "偏多觀察"; char = "買"; color = "#fb923c"; desc = "多項指標偏多，可逢回分批買進"; }
   else if (total >= 44) { action = "中性觀望"; char = "觀"; color = "#fbbf24"; desc = "訊號混合，等待方向明確再行動"; }
   else if (total >= 30) { action = "偏空觀察"; char = "賣"; color = "#a3e635"; desc = "指標轉弱，建議減碼或停利"; }
   else                  { action = "強力規避"; char = "賣"; color = "#4ade80"; desc = "技術與籌碼均弱，大幅降低部位"; }
-
   const rsi = ai?.rsi ?? 50;
   const subtitle =
     rsi > 75 ? "短線過熱，等待回測" :
@@ -231,7 +225,6 @@ function calcFullSignal(ai, chip) {
     total <= 35 ? "弱勢格局，謹慎操作" :
     total <= 45 ? "趨勢偏弱，觀望為宜" :
     "盤整震盪，等待方向確立";
-
   return { action, char, color, total, desc, subtitle };
 }
 
@@ -264,23 +257,22 @@ function calcMainForceWarning(ai, chip, pricePct) {
 }
 
 function genRecommendations(ai, chip) {
-  const rsi   = ai?.rsi   ?? 50;
+  const rsi    = ai?.rsi    ?? 50;
   const tScore = ai?.tScore ?? 50;
-  const s1    = ai?.s1    ?? "—";
-  const r1    = ai?.r1    ?? "—";
-  const stop  = ai?.stop  ?? "—";
-  const ma20  = ai?.ma20  != null ? +ai.ma20.toFixed(2) : "—";
-  const ma60  = ai?.ma60  != null ? +ai.ma60.toFixed(2) : "—";
-  const kdK   = ai?.kdK   ?? 50;
-  const dif   = ai?.dif   ?? 0;
-  const dea   = ai?.dea   ?? 0;
+  const s1     = ai?.s1     ?? "—";
+  const r1     = ai?.r1     ?? "—";
+  const stop   = ai?.stop   ?? "—";
+  const ma20   = ai?.ma20   != null ? +ai.ma20.toFixed(2) : "—";
+  const ma60   = ai?.ma60   != null ? +ai.ma60.toFixed(2) : "—";
+  const kdK    = ai?.kdK    ?? 50;
+  const dif    = ai?.dif    ?? 0;
+  const dea    = ai?.dea    ?? 0;
   const volStatus  = ai?.volStatus  ?? "";
   const maStatus   = ai?.maStatus   ?? "";
-  const macdStatus = ai?.macdStatus ?? "";
 
   const bulls = [];
 
-  // ① RSI 狀態
+  // ① RSI
   if (rsi > 78)
     bulls.push(`RSI ${rsi.toFixed(1)} 嚴重超買，短線隨時拉回，建議不追高，等回測 ${s1} 支撐再評估`);
   else if (rsi > 70)
@@ -296,7 +288,7 @@ function genRecommendations(ai, chip) {
   else
     bulls.push(`RSI ${rsi.toFixed(1)} 中性，等待突破 ${r1} 壓力或量能明顯放大再介入`);
 
-  // ② 均線 / 趨勢
+  // ② 均線
   if (maStatus.includes("多頭排列"))
     bulls.push(`均線多頭排列（MA20:${ma20}↑），回測不破 ${ma20} 視為健康整理，可持股`);
   else if (maStatus.includes("空頭排列"))
@@ -306,7 +298,7 @@ function genRecommendations(ai, chip) {
   else
     bulls.push(`均線糾結整理，等待均線方向明確（觀察 MA20:${ma20} 是否站穩）再行動`);
 
-  // ③ KD 訊號
+  // ③ KD
   if (kdK < 20)
     bulls.push(`KD K值 ${kdK.toFixed(0)} 低檔，留意底部黃金交叉訊號，一旦出現可短多`);
   else if (kdK > 80)
@@ -317,8 +309,6 @@ function genRecommendations(ai, chip) {
     bulls.push(`MACD 多頭擴張（DIF>${dea > 0 ? "+" : ""}${dea.toFixed(2)}），趨勢仍多，持股信心偏正向`);
   else if (dif < 0 && dif < dea)
     bulls.push(`MACD 空頭擴張，多方動能不足，不宜重押，輕倉觀察為主`);
-  else if (dif > 0 && dif < dea)
-    bulls.push(`MACD 多頭收斂，短線動能減弱，留意是否死亡交叉`);
 
   // ⑤ 量價
   if (volStatus === "放量上漲")
@@ -330,9 +320,9 @@ function genRecommendations(ai, chip) {
   else
     bulls.push(`量能平穩，等待放量突破 ${r1} 再確認多方訊號`);
 
-  // ⑥ 籌碼面
+  // ⑥ 籌碼
   if (chip) {
-    const f5 = chip.foreign5, t5 = chip.trust5, tot5 = chip.total5;
+    const f5 = chip.foreign5, t5 = chip.trust5;
     if (f5 > 3000)
       bulls.push(`外資近5日大買超 +${f5.toLocaleString()} 張，主力資金進駐，籌碼面強勢`);
     else if (f5 > 500)
@@ -347,10 +337,9 @@ function genRecommendations(ai, chip) {
       bulls.push(`投信近5日賣超 ${t5.toLocaleString()} 張，需觀察是否持續`);
   }
 
-  // ⑦ 停損提醒（固定最後一條）
+  // ⑦ 停損
   bulls.push(`停損參考：收盤跌破 ${stop} 應出場，不宜凹單`);
 
-  // 去重、取前5條
   return [...new Map(bulls.map(b => [b, b])).values()].slice(0, 5);
 }
 
@@ -416,12 +405,41 @@ const f = (v, d = 2) => v != null && !isNaN(v) ? Number(v).toFixed(d) : "—";
 const numColor = v => v > 0 ? "#f87171" : v < 0 ? "#4ade80" : "#94a3b8";
 const numFmt   = v => v === 0 ? "0" : v > 0 ? `+${v.toLocaleString()}` : v.toLocaleString();
 
-function Panel({ title, children, extra, warn }) {
+// ── Tooltip 說明泡泡 ──────────────────────────────────────────────────────────
+function InfoTip({ text }) {
+  const [show, setShow] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    const close = e => { if (ref.current && !ref.current.contains(e.target)) setShow(false); };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, []);
+  return (
+    <span ref={ref} style={{ position: "relative", display: "inline-flex", alignItems: "center", marginLeft: "5px" }}>
+      <span
+        onMouseEnter={() => setShow(true)}
+        onMouseLeave={() => setShow(false)}
+        onClick={e => { e.stopPropagation(); setShow(v => !v); }}
+        style={{ cursor: "help", color: "#475569", fontSize: "0.55rem", border: "1px solid #334155", borderRadius: "50%", width: "13px", height: "13px", display: "inline-flex", alignItems: "center", justifyContent: "center", userSelect: "none", flexShrink: 0, lineHeight: 1 }}
+      >?</span>
+      {show && (
+        <div style={{ position: "absolute", bottom: "130%", left: "50%", transform: "translateX(-50%)", background: "#0f172a", border: "1px solid #1e3a5f", borderRadius: "8px", padding: "8px 10px", minWidth: "170px", maxWidth: "230px", fontSize: "0.62rem", color: "#94a3b8", lineHeight: 1.65, zIndex: 999, pointerEvents: "none", boxShadow: "0 4px 20px #000c", whiteSpace: "normal" }}>
+          {text}
+        </div>
+      )}
+    </span>
+  );
+}
+
+// ── Panel 容器 ────────────────────────────────────────────────────────────────
+function Panel({ title, titleNode, children, extra, warn }) {
   return (
     <div style={{ background: warn ? "#1a0a0a" : "#0b1a2e", border: `1px solid ${warn ? "#7f1d1d" : "#1a2f4a"}`, borderRadius: "12px", padding: "10px 12px" }}>
-      {(title || extra) && (
+      {(title || titleNode || extra) && (
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-          {title && <span style={{ color: warn ? "#fca5a5" : "#38bdf8", fontWeight: 700, fontSize: "0.72rem" }}>{title}</span>}
+          {titleNode
+            ? titleNode
+            : title && <span style={{ color: warn ? "#fca5a5" : "#38bdf8", fontWeight: 700, fontSize: "0.72rem", display: "flex", alignItems: "center" }}>{title}</span>}
           {extra && <span style={{ fontSize: "0.65rem", color: "#475569" }}>{extra}</span>}
         </div>
       )}
@@ -439,28 +457,52 @@ function Row({ k, v, vc }) {
   );
 }
 
-function CandleChart({ candles }) {
-  const data = candles.slice(-65);
+// ── K 線圖（含布林通道）────────────────────────────────────────────────────────
+function CandleChart({ candles, bb }) {
+  const data  = candles.slice(-65);
+  const bbSlice = bb ? bb.slice(-65) : null;
   const prices = data.flatMap(c => [c.high, c.low]).filter(v => v > 0);
   if (!prices.length) return null;
-  const minP = Math.min(...prices), maxP = Math.max(...prices), span = maxP - minP || 1;
+
+  // 若有布林通道，上下軌也要納入 Y 軸範圍
+  const bbPrices = bbSlice
+    ? bbSlice.flatMap(b => [b?.upper, b?.lower]).filter(v => v != null)
+    : [];
+  const allPrices = [...prices, ...bbPrices];
+  const minP = Math.min(...allPrices), maxP = Math.max(...allPrices), span = maxP - minP || 1;
   const pMin = minP - span * 0.04, pMax = maxP + span * 0.04;
   const W = 1000, H = 230, pT = 8, pB = 4, cW = W / data.length, bW = cW * 0.62;
   const py = p => pT + (1 - (p - pMin) / (pMax - pMin)) * (H - pT - pB);
   const cx = i => (i + 0.5) * cW;
+
   const maLine = (ma, clr) => {
     const segs = []; let seg = [];
     ma.forEach((v, i) => { if (v != null) seg.push(`${cx(i).toFixed(1)},${py(v).toFixed(1)}`); else if (seg.length) { segs.push(seg); seg = []; } });
     if (seg.length) segs.push(seg);
     return segs.map((s, j) => <polyline key={j} points={s.join(" ")} fill="none" stroke={clr} strokeWidth="2.5" />);
   };
+
+  const bbLine = (vals, clr, dash) => {
+    if (!vals) return null;
+    const segs = []; let seg = [];
+    vals.forEach((v, i) => { if (v != null) seg.push(`${cx(i).toFixed(1)},${py(v).toFixed(1)}`); else if (seg.length) { segs.push(seg); seg = []; } });
+    if (seg.length) segs.push(seg);
+    return segs.map((s, j) => <polyline key={j} points={s.join(" ")} fill="none" stroke={clr} strokeWidth="1.2" strokeDasharray={dash} opacity="0.65" />);
+  };
+
   const cls = data.map(c => c.close);
   return (
     <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "185px", display: "block" }} preserveAspectRatio="none">
       {[0.2, 0.4, 0.6, 0.8].map(r => <line key={r} x1={0} x2={W} y1={pT + r * (H - pT - pB)} y2={pT + r * (H - pT - pB)} stroke="#0f2035" strokeWidth="1" />)}
+      {/* 布林通道 */}
+      {bbSlice && bbLine(bbSlice.map(b => b?.upper), "#64748b", "5 3")}
+      {bbSlice && bbLine(bbSlice.map(b => b?.mid),   "#64748b", "2 3")}
+      {bbSlice && bbLine(bbSlice.map(b => b?.lower), "#64748b", "5 3")}
+      {/* MA 線 */}
       {maLine(calcMA(cls, 5), "#f59e0b")}
       {maLine(calcMA(cls, 20), "#60a5fa")}
       {maLine(calcMA(cls, Math.min(60, cls.length)), "#c084fc")}
+      {/* K 線本體 */}
       {data.map((c, i) => {
         const up = c.close >= c.open, clr = up ? "#f87171" : "#4ade80";
         const bT = py(Math.max(c.open, c.close)), bB = py(Math.min(c.open, c.close));
@@ -564,7 +606,6 @@ function ChipBarChart({ instData, candles }) {
   const maxAbs = Math.max(Math.abs(Math.max(...allNets)), Math.abs(Math.min(...allNets)), 1);
   const prices = rows.map(r => r.price).filter(Boolean);
   const pMin = Math.min(...prices), pMax = Math.max(...prices);
-
   return (
     <ResponsiveContainer width="100%" height={160}>
       <ComposedChart data={rows} margin={{ top: 4, right: 30, bottom: 0, left: -20 }}>
@@ -573,8 +614,8 @@ function ChipBarChart({ instData, candles }) {
         <YAxis yAxisId="r" orientation="right" domain={[pMin * 0.97, pMax * 1.03]} tick={{ fontSize: 9, fill: "#fbbf24" }} tickLine={false} />
         <ReferenceLine yAxisId="l" y={0} stroke="#1a2f4a" />
         <Tooltip contentStyle={{ background: "#0b1a2e", border: "1px solid #1a2f4a", borderRadius: "8px", fontSize: "0.65rem" }} formatter={(v, n) => [v?.toLocaleString() + " 張", n]} />
-        <Bar yAxisId="l" dataKey="foreign" name="外資" fill="#60a5fa" opacity={0.85} maxBarSize={12} />
-        <Bar yAxisId="l" dataKey="trust"   name="投信" fill="#f87171" opacity={0.85} maxBarSize={12} />
+        <Bar yAxisId="l" dataKey="foreign" name="外資"   fill="#60a5fa" opacity={0.85} maxBarSize={12} />
+        <Bar yAxisId="l" dataKey="trust"   name="投信"   fill="#f87171" opacity={0.85} maxBarSize={12} />
         <Bar yAxisId="l" dataKey="dealer"  name="自營商" fill="#c084fc" opacity={0.85} maxBarSize={12} />
         <Line yAxisId="r" dataKey="price" name="股價" stroke="#fbbf24" dot={false} strokeWidth={2} connectNulls />
       </ComposedChart>
@@ -592,6 +633,22 @@ function StarRating({ stars, max = 5 }) {
   );
 }
 
+// ── 自選股 ────────────────────────────────────────────────────────────────────
+function useWatchlist() {
+  const [list, setList] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("watchlist") || "[]"); } catch { return []; }
+  });
+  const toggle = (code, name) => setList(prev => {
+    const next = prev.some(w => w.code === code)
+      ? prev.filter(w => w.code !== code)
+      : [...prev, { code, name }];
+    localStorage.setItem("watchlist", JSON.stringify(next));
+    return next;
+  });
+  const has = code => list.some(w => w.code === code);
+  return { list, toggle, has };
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 //  Main App
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -600,6 +657,7 @@ export default function App() {
   const [phase, setPhase] = useState("idle");
   const [stock, setStock] = useState(null);
   const [candles, setCandles] = useState([]);
+  const [bb, setBb]       = useState(null);
   const [rows, setRows]   = useState([]);
   const [ai, setAi]       = useState(null);
   const [chip, setChip]   = useState(null);
@@ -607,12 +665,14 @@ export default function App() {
   const [chipAnalysis, setChipAnalysis] = useState(null);
   const [err, setErr]     = useState("");
   const [source, setSource] = useState("");
+  const watchlist = useWatchlist();
 
-  const run = async () => {
-    const c = code.trim().replace(/\D/g, "");
+  const run = async (overrideCode) => {
+    const c = (overrideCode ?? code).trim().replace(/\D/g, "");
     if (!c) return;
+    if (overrideCode) setCode(overrideCode);
     setErr(""); setPhase("loading");
-    setChip(null); setChipAnalysis(null);
+    setChip(null); setChipAnalysis(null); setBb(null);
 
     try {
       const data = await fetchStock(c);
@@ -626,6 +686,7 @@ export default function App() {
       const rsia  = calcRSI(cls);
       const { dif, dea, hist } = calcMACD(cls);
       const { K, D } = calcKD(highs, lows, cls);
+      const bba   = calcBB(cls);
       const n = cls.length - 1;
 
       const today = all[n], prev = all[n - 1]?.close ?? today.open;
@@ -636,11 +697,10 @@ export default function App() {
       const stockObj = {
         name: data.name, code: c, exchange: data.market,
         price: today.close, open: today.open, high: today.high, low: today.low, vol: today.volume,
-        change, changePct, isUp: change >= 0, ...ind,
-        rsi: rsia[n],
+        change, changePct, isUp: change >= 0, ...ind, rsi: rsia[n],
       };
 
-      setSource(data.source); setCandles(all); setStock(stockObj);
+      setSource(data.source); setCandles(all); setBb(bba); setStock(stockObj);
       const off = all.length - Math.min(65, all.length);
       setRows(all.slice(-65).map((_, i) => ({
         date: all[off + i].ds,
@@ -651,7 +711,6 @@ export default function App() {
       setSig(calcFullSignal({ ...analysis, rsi: rsia[n] }, null));
       setPhase("done");
 
-      // Load chip data asynchronously (non-blocking)
       fetchChip(c).then(raw => {
         if (!raw?.inst?.length) return;
         setChip(raw);
@@ -680,17 +739,35 @@ export default function App() {
           autoFocus inputMode="numeric"
           style={{ width: "100%", padding: "1.1rem", borderRadius: "14px", background: "#0f172a", border: `2px solid ${phase === "error" ? "#ef4444" : "#334155"}`, color: "#f1f5f9", fontSize: "1.2rem", outline: "none", textAlign: "center", letterSpacing: "0.15em", boxSizing: "border-box" }}
         />
-        <button onClick={run} style={{ padding: "1.1rem", borderRadius: "14px", background: "linear-gradient(135deg,#2563eb,#7c3aed)", border: "none", color: "#fff", fontSize: "1.05rem", fontWeight: 700, cursor: "pointer" }}>
+        <button onClick={() => run()} style={{ padding: "1.1rem", borderRadius: "14px", background: "linear-gradient(135deg,#2563eb,#7c3aed)", border: "none", color: "#fff", fontSize: "1.05rem", fontWeight: 700, cursor: "pointer" }}>
           開始分析 →
         </button>
         {phase === "error" && (
           <div style={{ background: "#450a0a", border: "1px solid #7f1d1d", borderRadius: "10px", padding: "0.8rem 1rem", color: "#fca5a5", fontSize: "0.78rem", lineHeight: 1.5, whiteSpace: "pre-wrap" }}>⚠️ {err}</div>
         )}
+
+        {/* ── 自選股清單 ── */}
+        {watchlist.list.length > 0 && (
+          <div style={{ background: "#0f172a", borderRadius: "10px", padding: "0.8rem" }}>
+            <div style={{ color: "#fbbf24", fontSize: "0.7rem", marginBottom: "6px", fontWeight: 700 }}>⭐ 自選股</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
+              {watchlist.list.map(w => (
+                <button key={w.code} onClick={() => run(w.code)}
+                  style={{ background: "#1a2f4a", border: "1px solid #1e3a5f", borderRadius: "6px", color: "#fbbf24", padding: "6px 10px", fontSize: "0.72rem", cursor: "pointer", display: "flex", alignItems: "center", gap: "4px" }}>
+                  <span>{w.code}</span>
+                  <span style={{ color: "#94a3b8" }}>{w.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── 熱門代碼 ── */}
         <div style={{ background: "#0f172a", borderRadius: "10px", padding: "0.8rem" }}>
           <div style={{ color: "#64748b", fontSize: "0.7rem", marginBottom: "6px", fontWeight: 700 }}>熱門代碼</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
             {[["2330","台積電"],["2454","聯發科"],["6669","緯穎"],["2379","瑞昱"],["2383","台光電"],["2337","旺宏"],["2317","鴻海"],["2382","廣達"]].map(([c, n]) => (
-              <button key={c} onClick={() => setCode(c)} style={{ background: "#1e293b", border: "none", borderRadius: "5px", color: "#94a3b8", padding: "6px 10px", fontSize: "0.72rem", cursor: "pointer" }}>{c} {n}</button>
+              <button key={c} onClick={() => run(c)} style={{ background: "#1e293b", border: "none", borderRadius: "5px", color: "#94a3b8", padding: "6px 10px", fontSize: "0.72rem", cursor: "pointer" }}>{c} {n}</button>
             ))}
           </div>
         </div>
@@ -721,6 +798,7 @@ export default function App() {
   const recs       = genRecommendations(ai, chipAnalysis);
   const trendColor = ai.trend.includes("多") ? "#f87171" : ai.trend.includes("空") ? "#4ade80" : "#fbbf24";
   const instData   = chip?.inst ?? [];
+  const inWatch    = watchlist.has(stock.code);
 
   // ─── Dashboard ───────────────────────────────────────────────────────────────
   return (
@@ -728,9 +806,16 @@ export default function App() {
 
       {/* ── Header ── */}
       <div style={{ background: "#0b1a2e", border: "1px solid #1a2f4a", borderRadius: "12px", padding: "10px 14px", marginBottom: "7px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <button onClick={() => { setPhase("idle"); setStock(null); setAi(null); setChip(null); setChipAnalysis(null); }}
             style={{ background: "none", border: "1px solid #1a2f4a", borderRadius: "6px", color: "#64748b", padding: "4px 10px", cursor: "pointer", fontSize: "0.7rem" }}>← 返回</button>
+          {/* ⭐ 自選股按鈕 */}
+          <button
+            onClick={() => watchlist.toggle(stock.code, stock.name)}
+            title={inWatch ? "從自選股移除" : "加入自選股"}
+            style={{ background: inWatch ? "rgba(251,191,36,0.15)" : "none", border: `1px solid ${inWatch ? "#fbbf24" : "#1a2f4a"}`, borderRadius: "6px", color: inWatch ? "#fbbf24" : "#475569", padding: "4px 8px", cursor: "pointer", fontSize: "0.85rem", lineHeight: 1 }}>
+            {inWatch ? "★" : "☆"}
+          </button>
           <div>
             <span style={{ fontSize: "1.2rem", fontWeight: 900 }}>{stock.name}</span>
             <span style={{ color: "#334155", margin: "0 5px", fontSize: "0.78rem" }}>{stock.code}</span>
@@ -753,12 +838,13 @@ export default function App() {
         </div>
       </div>
 
-      {/* ── MA labels ── */}
-      <div style={{ display: "flex", gap: "12px", marginBottom: "6px", paddingLeft: "3px", fontSize: "0.66rem", flexWrap: "wrap" }}>
+      {/* ── MA + BB 圖例 ── */}
+      <div style={{ display: "flex", gap: "12px", marginBottom: "6px", paddingLeft: "3px", fontSize: "0.66rem", flexWrap: "wrap", alignItems: "center" }}>
         <span style={{ color: "#334155" }}>日K線</span>
         <span style={{ color: "#f59e0b" }}>MA5 {f(stock.ma5)}</span>
         <span style={{ color: "#60a5fa" }}>MA20 {f(stock.ma20)}</span>
         <span style={{ color: "#c084fc" }}>MA60 {f(stock.ma60)}</span>
+        <span style={{ color: "#64748b" }}>- - BB(20)</span>
       </div>
 
       {/* ── Main grid ── */}
@@ -768,7 +854,7 @@ export default function App() {
         <div style={{ display: "flex", flexDirection: "column", gap: "7px" }}>
           <Panel title="技術面分析（日K線）">
             <SignalBadge sig={sig} />
-            <CandleChart candles={candles} />
+            <CandleChart candles={candles} bb={bb} />
             <div style={{ borderTop: "1px solid #0f2035", paddingTop: "2px" }}>
               <span style={{ color: "#1a3a5c", fontSize: "0.6rem" }}>成交量（張）</span>
               <VolChart candles={candles} />
@@ -776,7 +862,16 @@ export default function App() {
           </Panel>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "7px" }}>
-            <Panel title={`RSI(14) ${f(stock.rsi, 1)}`} extra={stock.rsi > 70 ? "⚠️超買" : stock.rsi < 30 ? "💡超賣" : ""}>
+            {/* RSI Panel with Tooltip */}
+            <Panel
+              titleNode={
+                <span style={{ color: "#38bdf8", fontWeight: 700, fontSize: "0.72rem", display: "flex", alignItems: "center" }}>
+                  RSI(14) {f(stock.rsi, 1)}
+                  <InfoTip text="相對強弱指數（0-100）。＞70 超買（紅線），短線過熱；＜30 超賣（綠線），可能反彈。一般 50 以上偏多，50 以下偏空。" />
+                </span>
+              }
+              extra={stock.rsi > 70 ? "⚠️超買" : stock.rsi < 30 ? "💡超賣" : ""}
+            >
               <ResponsiveContainer width="100%" height={62}>
                 <LineChart data={rows}>
                   <XAxis dataKey="date" hide /><YAxis domain={[0, 100]} hide />
@@ -786,7 +881,16 @@ export default function App() {
                 </LineChart>
               </ResponsiveContainer>
             </Panel>
-            <Panel title={`KD  K:${f(stock.kdK, 1)}  D:${f(stock.kdD, 1)}`}>
+
+            {/* KD Panel with Tooltip */}
+            <Panel
+              titleNode={
+                <span style={{ color: "#38bdf8", fontWeight: 700, fontSize: "0.72rem", display: "flex", alignItems: "center" }}>
+                  KD K:{f(stock.kdK,1)} D:{f(stock.kdD,1)}
+                  <InfoTip text="隨機指標（0-100）。K 線（黃）向上穿越 D 線（藍）為黃金交叉買訊；向下穿越為死亡交叉賣訊。K＞80 高檔鈍化，K＜20 低檔超賣。" />
+                </span>
+              }
+            >
               <ResponsiveContainer width="100%" height={62}>
                 <LineChart data={rows}>
                   <XAxis dataKey="date" hide /><YAxis domain={[0, 100]} hide />
@@ -799,7 +903,15 @@ export default function App() {
             </Panel>
           </div>
 
-          <Panel title={`MACD  DIF:${f(stock.dif, 2)}  DEA:${f(stock.dea, 2)}`}>
+          {/* MACD Panel with Tooltip */}
+          <Panel
+            titleNode={
+              <span style={{ color: "#38bdf8", fontWeight: 700, fontSize: "0.72rem", display: "flex", alignItems: "center" }}>
+                MACD DIF:{f(stock.dif,2)} DEA:{f(stock.dea,2)}
+                <InfoTip text="指數平滑移動平均線。DIF（黃）＞DEA（藍）且柱狀體（紅）為正，代表多頭擴張；反之為空頭。DIF 由負轉正是重要買訊。" />
+              </span>
+            }
+          >
             <ResponsiveContainer width="100%" height={72}>
               <ComposedChart data={rows}>
                 <XAxis dataKey="date" hide /><YAxis hide />
@@ -825,7 +937,14 @@ export default function App() {
 
         {/* ── Col 2: Chip Analysis ── */}
         <div style={{ display: "flex", flexDirection: "column", gap: "7px" }}>
-          <Panel title="籌碼面分析">
+          <Panel
+            titleNode={
+              <span style={{ color: "#38bdf8", fontWeight: 700, fontSize: "0.72rem", display: "flex", alignItems: "center" }}>
+                籌碼面分析
+                <InfoTip text="三大法人指外資、投信（國內基金）和自營商。三者合計買超代表機構資金流入，通常對股價偏正面；賣超則反之。融資增加代表散戶借錢買股，過高時需注意風險。" />
+              </span>
+            }
+          >
             <div style={{ fontSize: "0.65rem", color: "#38bdf8", marginBottom: "4px" }}>三大法人近10日動向</div>
             <div style={{ display: "flex", gap: "10px", marginBottom: "4px", fontSize: "0.6rem" }}>
               <span style={{ color: "#60a5fa" }}>■ 外資</span>
@@ -847,7 +966,7 @@ export default function App() {
                       {[
                         ["主力增減(張)", chipAnalysis.mainNet10, true],
                         ["10日累計(張)", chipAnalysis.totalNet10, true],
-                        ["外資近5日", chipAnalysis.foreign5, true],
+                        ["外資近5日",   chipAnalysis.foreign5,   true],
                         ["籌碼評分",    chipAnalysis.cScore + " / 100", false],
                       ].map(([k, v, colored]) => (
                         <div key={k} style={{ background: "#0f2035", borderRadius: "6px", padding: "5px 8px" }}>
@@ -874,11 +993,10 @@ export default function App() {
             )}
           </Panel>
 
-          {/* Technical Overview */}
           <Panel title="技術分析總覽">
             {[
-              ["趨勢方向", ai.trend, trendColor],
-              ["短期均線(MA5)",  f(stock.ma5), "#f59e0b"],
+              ["趨勢方向",     ai.trend,     trendColor],
+              ["短期均線(MA5)",  f(stock.ma5),  "#f59e0b"],
               ["中期均線(MA20)", f(stock.ma20), "#60a5fa"],
               ["長期均線(MA60)", f(stock.ma60), "#c084fc"],
               ["KD指標",  `K:${f(stock.kdK,1)} D:${f(stock.kdD,1)}  ${ai.kdStatus}`, null],
@@ -891,7 +1009,6 @@ export default function App() {
         {/* ── Col 3: Recommendations + Levels ── */}
         <div style={{ display: "flex", flexDirection: "column", gap: "7px" }}>
 
-          {/* Operation Recommendations */}
           <Panel title="操作建議（短線）">
             <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
               {recs.map((r, i) => (
@@ -903,7 +1020,6 @@ export default function App() {
             </div>
           </Panel>
 
-          {/* Volume Analysis */}
           <Panel title="成交量分析（盤後）">
             <Row k="成交量"   v={`${(stock.vol || 0).toLocaleString()} 張`} />
             <Row k="5日均量"  v={`${Math.round(candles.slice(-6, -1).reduce((s, c) => s + (c.volume || 0), 0) / 5).toLocaleString()} 張`} />
@@ -916,7 +1032,6 @@ export default function App() {
             </div>
           </Panel>
 
-          {/* Main Force Warning */}
           <Panel title="主力出貨警示" warn={mfWarning.stars >= 4}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "5px" }}>
               <StarRating stars={mfWarning.stars} />
@@ -925,7 +1040,6 @@ export default function App() {
             <div style={{ fontSize: "0.67rem", color: "#64748b", lineHeight: 1.5 }}>{mfWarning.desc}</div>
           </Panel>
 
-          {/* Win Rate Gauge */}
           <Panel title="短線進場勝率" extra={winRate >= 60 ? "偏高" : winRate >= 45 ? "中等" : "偏低"}>
             <Gauge v={winRate} />
             <div style={{ fontSize: "0.65rem", color: "#475569", textAlign: "center", lineHeight: 1.5, marginTop: "2px" }}>
@@ -936,7 +1050,6 @@ export default function App() {
             </div>
           </Panel>
 
-          {/* Key Levels */}
           <Panel title="關鍵價位">
             <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
               <div style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: "7px", padding: "5px 9px", display: "flex", justifyContent: "space-between" }}>
@@ -947,12 +1060,11 @@ export default function App() {
                 <span style={{ color: "#4ade80", fontSize: "0.7rem" }}>支撐區</span>
                 <span style={{ color: "#86efac", fontWeight: 700, fontSize: "0.72rem" }}>{ai.s1} ～ {ai.s2}</span>
               </div>
-              <Row k="強支撐" v={ai.strongSupport} vc="#60a5fa" />
+              <Row k="強支撐"  v={ai.strongSupport} vc="#60a5fa" />
               <Row k="停損參考" v={`${ai.stop} 以下收盤`} vc="#fb923c" />
             </div>
           </Panel>
 
-          {/* Possible Paths */}
           <Panel title="可能路徑">
             {[
               { no: "①", label: "上漲路徑", cond: ai.path1cond, dir: "→ 挑戰", target: ai.path1target, clr: "#f87171" },
