@@ -75,8 +75,11 @@ export default async function handler(req, res) {
       short_buy:      Number(r.ShortSaleBuy               || 0),
     }));
 
-    res.setHeader("Cache-Control", "s-maxage=300, stale-while-revalidate=600");
-    return res.status(200).json({ inst: instData, margin: marginData });
+    // _debug: 列出所有出現的機構名稱（確認後可移除）
+    const uniqueNames = [...new Set(rows.map(r => r.name))];
+
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(200).json({ inst: instData, margin: marginData, _debug: { uniqueNames, divisor, sampleVal } });
   } catch (err) {
     return res.status(500).json({ error: err.message || "chip fetch failed" });
   }
