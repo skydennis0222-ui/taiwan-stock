@@ -346,8 +346,8 @@ function genRecommendations(ai, chip) {
 // ═══════════════════════════════════════════════════════════════════════════════
 //  Data Fetching
 // ═══════════════════════════════════════════════════════════════════════════════
-async function fetchFinMind(code) {
-  const res = await fetch(`/api/finmind?code=${code}`);
+async function fetchFinMind(code, period = "3m") {
+  const res = await fetch(`/api/finmind?code=${code}&period=${period}`);
   if (!res.ok) throw new Error(`FinMind HTTP ${res.status}`);
   const { price, info } = await res.json();
   if (price.status !== 200 || !price.data?.length) throw new Error(`FinMind: ${price.msg || "no data"}`);
@@ -364,7 +364,7 @@ async function fetchFinMind(code) {
   return { name: stockName, symbol: code, market, candles, source: "FinMind" };
 }
 
-async function fetchYahoo(code) {
+async function fetchYahoo(code, period = "3m") {
   const res = await fetch(`/api/yahoo?code=${code}`);
   if (!res.ok) throw new Error(`Yahoo HTTP ${res.status}`);
   const json = await res.json();
@@ -383,16 +383,24 @@ async function fetchYahoo(code) {
   return { name: meta.shortName || code, symbol: code, market: json._market || "上市", candles, source: "Yahoo" };
 }
 
-async function fetchStock(code) {
+async function fetchStock(code, period = "3m") {
   const errs = [];
-  try { return await fetchFinMind(code); } catch (e) { errs.push(e.message); }
-  try { return await fetchYahoo(code); }   catch (e) { errs.push(e.message); }
+  try { return await fetchFinMind(code, period); } catch (e) { errs.push(e.message); }
+  try { return await fetchYahoo(code, period); }   catch (e) { errs.push(e.message); }
   throw new Error(`找不到 ${code}\n${errs.join("\n")}`);
 }
 
 async function fetchChip(code) {
   try {
     const res = await fetch(`/api/chip?code=${code}`);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch { return null; }
+}
+
+async function fetchFundamental(code) {
+  try {
+    const res = await fetch(`/api/fundamental?code=${code}`);
     if (!res.ok) return null;
     return await res.json();
   } catch { return null; }
@@ -469,9 +477,9 @@ function Row({ k, v, vc }) {
 }
 
 // ── K 線圖（含布林通道）────────────────────────────────────────────────────────
-function CandleChart({ candles, bb }) {
-  const data  = candles.slice(-65);
-  const bbSlice = bb ? bb.slice(-65) : null;
+function CandleChart({ candles, bb, displayN = 65 }) {
+  const data  = candles.slice(-displayN);
+  const bbSlice = bb ? bb.slice(-displayN) : null;
   const prices = data.flatMap(c => [c.high, c.low]).filter(v => v > 0);
   if (!prices.length) return null;
 
@@ -644,6 +652,88 @@ function StarRating({ stars, max = 5 }) {
   );
 }
 
+// ── 基本面面板 ────────────────────────────────────────────────────────────────
+function FundamentalPanel({ fundamental }) {
+  if (!fundamental) return (
+    <div style={{ color: "#334155", fontSize: "0.68rem", padding: "10px", textAlign: "center" }}>
+      基本面資料載入中...
+    </div>
+  );
+
+  const { per, revenue } = fundamental;
+  const perColor = v => v == null ? "#64748b" : v < 15 ? "#4ade80" : v < 25 ? "#fbbf24" : v < 40 ? "#fb923c" : "#f87171";
+
+  // 月營收長條圖資料（近 8 筆顯示）
+  const revRows = (revenue || []).slice(-8);
+  const maxRev  = Math.max(...revRows.map(r => r.revenue), 1);
+
+  return (
+    <>
+      {/* ── PER / PBR / 殖利率 ── */}
+      {per && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "5px", marginBottom: "10px" }}>
+          {[
+            { label: "本益比(PE)", value: per.pe != null ? per.pe.toFixed(1) : "—", color: perColor(per.pe),  tip: "PE < 15 偏低（綠），15-25 合理（黃），> 40 偏高（紅）" },
+            { label: "股價淨值(PB)", value: per.pb != null ? per.pb.toFixed(2) : "—", color: per.pb < 1 ? "#4ade80" : per.pb < 3 ? "#fbbf24" : "#f87171", tip: "PBR < 1 低於帳面價值，< 3 合理，> 3 偏貴" },
+            { label: "殖利率(%)",  value: per.div != null ? per.div.toFixed(2) + "%" : "—", color: per.div > 5 ? "#4ade80" : per.div > 3 ? "#fbbf24" : "#94a3b8", tip: "> 5% 高殖利率，> 3% 合理配息" },
+          ].map(({ label, value, color, tip }) => (
+            <div key={label} style={{ background: "#0f2035", borderRadius: "7px", padding: "6px 8px", textAlign: "center" }}>
+              <div style={{ color: "#475569", fontSize: "0.58rem", marginBottom: "2px" }}>{label}</div>
+              <div style={{ color, fontWeight: 800, fontSize: "1rem", lineHeight: 1.1 }}>{value}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── 月營收長條圖 ── */}
+      {revRows.length > 0 && (
+        <>
+          <div style={{ fontSize: "0.63rem", color: "#38bdf8", marginBottom: "5px" }}>月營收（近8月，千元）</div>
+          <div style={{ display: "flex", alignItems: "flex-end", gap: "4px", height: "60px", marginBottom: "4px" }}>
+            {revRows.map((r, i) => {
+              const h = maxRev > 0 ? (r.revenue / maxRev) * 52 : 0;
+              const barColor = r.yoy == null ? "#334155" : r.yoy >= 0 ? "#f87171" : "#4ade80";
+              return (
+                <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: "2px" }}>
+                  {r.yoy != null && (
+                    <span style={{ fontSize: "0.5rem", color: r.yoy >= 0 ? "#f87171" : "#4ade80", lineHeight: 1 }}>
+                      {r.yoy >= 0 ? "+" : ""}{r.yoy}%
+                    </span>
+                  )}
+                  <div style={{ width: "100%", background: barColor, height: `${h}px`, borderRadius: "3px 3px 0 0", opacity: 0.8, minHeight: "2px" }} />
+                  <span style={{ fontSize: "0.48rem", color: "#334155", textAlign: "center", lineHeight: 1 }}>
+                    {String(r.month).padStart(2,"0")}月
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          {/* 最新月營收數字 */}
+          {revRows.length > 0 && (() => {
+            const latest = revRows[revRows.length - 1];
+            const prev   = revRows[revRows.length - 2];
+            const mom    = prev ? ((latest.revenue - prev.revenue) / prev.revenue * 100).toFixed(1) : null;
+            const revB   = (latest.revenue / 1e6).toFixed(2); // 轉億元
+            return (
+              <div style={{ fontSize: "0.63rem", color: "#64748b", display: "flex", gap: "12px", flexWrap: "wrap" }}>
+                <span>{latest.year}/{String(latest.month).padStart(2,"0")} 營收：<b style={{ color: "#c0cfe0" }}>{revB} 億</b></span>
+                {mom && <span>月增率：<b style={{ color: Number(mom) >= 0 ? "#f87171" : "#4ade80" }}>{Number(mom) >= 0 ? "+" : ""}{mom}%</b></span>}
+                {latest.yoy != null && <span>年增率：<b style={{ color: latest.yoy >= 0 ? "#f87171" : "#4ade80" }}>{latest.yoy >= 0 ? "+" : ""}{latest.yoy}%</b></span>}
+              </div>
+            );
+          })()}
+        </>
+      )}
+
+      {!per && (!revenue || !revenue.length) && (
+        <div style={{ color: "#334155", fontSize: "0.65rem", textAlign: "center", padding: "8px" }}>
+          FinMind 暫無此股基本面資料
+        </div>
+      )}
+    </>
+  );
+}
+
 // ── 自選股 ────────────────────────────────────────────────────────────────────
 function useWatchlist() {
   const [list, setList] = useState(() => {
@@ -665,7 +755,8 @@ function useWatchlist() {
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function App() {
   const [code, setCode]       = useState("");
-  const [quickCode, setQuickCode] = useState("");  // 快速換股輸入
+  const [quickCode, setQuickCode] = useState("");
+  const [period, setPeriod]   = useState("3m");   // "1m" | "3m" | "6m" | "1y"
   const [phase, setPhase]     = useState("idle");
   const [stock, setStock]     = useState(null);
   const [candles, setCandles] = useState([]);
@@ -675,19 +766,24 @@ export default function App() {
   const [chip, setChip]       = useState(null);
   const [sig, setSig]         = useState(null);
   const [chipAnalysis, setChipAnalysis] = useState(null);
+  const [fundamental, setFundamental] = useState(null);
   const [err, setErr]         = useState("");
   const [source, setSource]   = useState("");
   const watchlist = useWatchlist();
 
-  const run = async (overrideCode) => {
+  // 顯示 K 線數量對應 period
+  const periodCandles = { "1m": 22, "3m": 65, "6m": 130, "1y": 252 };
+
+  const run = async (overrideCode, overridePeriod) => {
     const c = (overrideCode ?? code).trim().replace(/\D/g, "");
     if (!c) return;
     if (overrideCode) setCode(overrideCode);
+    const p = overridePeriod ?? period;
     setErr(""); setPhase("loading");
-    setChip(null); setChipAnalysis(null); setBb(null);
+    setChip(null); setChipAnalysis(null); setBb(null); setFundamental(null);
 
     try {
-      const data = await fetchStock(c);
+      const data = await fetchStock(c, p);
       const all  = data.candles;
       const cls  = all.map(x => x.close);
       const highs = all.map(x => x.high);
@@ -712,9 +808,11 @@ export default function App() {
         change, changePct, isUp: change >= 0, ...ind, rsi: rsia[n],
       };
 
+      // 依 period 決定顯示多少根 K 線（但指標計算用全部資料）
+      const displayN = periodCandles[p] ?? 65;
       setSource(data.source); setCandles(all); setBb(bba); setStock(stockObj);
-      const off = all.length - Math.min(65, all.length);
-      setRows(all.slice(-65).map((_, i) => ({
+      const off = all.length - Math.min(displayN, all.length);
+      setRows(all.slice(-displayN).map((_, i) => ({
         date: all[off + i].ds,
         rsi: rsia[off + i], dif: dif[off + i], dea: dea[off + i], hist: hist[off + i],
         kdK: K[off + i], kdD: D[off + i],
@@ -723,6 +821,7 @@ export default function App() {
       setSig(calcFullSignal({ ...analysis, rsi: rsia[n] }, null));
       setPhase("done");
 
+      // 非同步載入籌碼 + 基本面
       fetchChip(c).then(raw => {
         if (!raw?.inst?.length) return;
         setChip(raw);
@@ -730,6 +829,7 @@ export default function App() {
         setChipAnalysis(ca);
         setSig(calcFullSignal({ ...analysis, rsi: rsia[n] }, ca));
       });
+      fetchFundamental(c).then(fd => { if (fd) setFundamental(fd); });
     } catch (e) {
       setErr(e.message || "未知錯誤"); setPhase("error");
     }
@@ -871,13 +971,24 @@ export default function App() {
         </div>
       </div>
 
-      {/* ── MA + BB 圖例 ── */}
-      <div style={{ display: "flex", gap: "12px", marginBottom: "6px", paddingLeft: "3px", fontSize: "0.66rem", flexWrap: "wrap", alignItems: "center" }}>
-        <span style={{ color: "#475569" }}>日K線</span>
-        <span style={{ color: "#f59e0b" }}>MA5 {f(stock.ma5)}</span>
-        <span style={{ color: "#60a5fa" }}>MA20 {f(stock.ma20)}</span>
-        <span style={{ color: "#c084fc" }}>MA60 {f(stock.ma60)}</span>
-        <span style={{ color: "#64748b" }}>╌ BB(20)</span>
+      {/* ── MA + BB 圖例 + 時間範圍切換 ── */}
+      <div style={{ display: "flex", gap: "10px", marginBottom: "6px", paddingLeft: "3px", fontSize: "0.66rem", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+          <span style={{ color: "#475569" }}>日K線</span>
+          <span style={{ color: "#f59e0b" }}>MA5 {f(stock.ma5)}</span>
+          <span style={{ color: "#60a5fa" }}>MA20 {f(stock.ma20)}</span>
+          <span style={{ color: "#c084fc" }}>MA60 {f(stock.ma60)}</span>
+          <span style={{ color: "#64748b" }}>╌ BB(20)</span>
+        </div>
+        {/* 時間範圍切換 */}
+        <div style={{ display: "flex", gap: "3px" }}>
+          {[["1m","1月"],["3m","3月"],["6m","6月"],["1y","1年"]].map(([p, label]) => (
+            <button key={p} onClick={() => { setPeriod(p); run(undefined, p); }}
+              style={{ padding: "3px 8px", borderRadius: "5px", fontSize: "0.62rem", cursor: "pointer", fontWeight: period === p ? 800 : 400, background: period === p ? "#1e3a5f" : "none", border: `1px solid ${period === p ? "#3b82f6" : "#1e3550"}`, color: period === p ? "#60a5fa" : "#475569" }}>
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* ── Main grid ── */}
@@ -887,7 +998,7 @@ export default function App() {
         <div style={{ display: "flex", flexDirection: "column", gap: "7px" }}>
           <Panel title="技術面分析（日K線）">
             <SignalBadge sig={sig} />
-            <CandleChart candles={candles} bb={bb} />
+            <CandleChart candles={candles} bb={bb} displayN={periodCandles[period] ?? 65} />
             <div style={{ borderTop: "1px solid #0f2035", paddingTop: "2px" }}>
               <span style={{ color: "#1a3a5c", fontSize: "0.6rem" }}>成交量（張）</span>
               <VolChart candles={candles} />
@@ -1031,6 +1142,20 @@ export default function App() {
                 法人資料載入中... <br /><span style={{ fontSize: "0.6rem" }}>（FinMind 部分個股需稍等）</span>
               </div>
             )}
+          </Panel>
+
+          {/* 基本面速覽 */}
+          <Panel
+            title="基本面速覽"
+            collapsible
+            titleNode={
+              <span style={{ color: "#38bdf8", fontWeight: 700, fontSize: "0.72rem", display: "flex", alignItems: "center" }}>
+                基本面速覽
+                <InfoTip text="本益比(PE)：股價/每股盈餘，越低越便宜。股價淨值比(PBR)：股價/每股淨值。殖利率：年配息/股價，越高代表現金回報越好。月營收年增率(YoY)正值為成長。" />
+              </span>
+            }
+          >
+            <FundamentalPanel fundamental={fundamental} />
           </Panel>
 
           <Panel title="技術分析總覽" collapsible>
