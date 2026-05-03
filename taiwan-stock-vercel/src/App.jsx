@@ -431,28 +431,39 @@ function InfoTip({ text }) {
   );
 }
 
-// ── Panel 容器 ────────────────────────────────────────────────────────────────
-function Panel({ title, titleNode, children, extra, warn }) {
+// ── Panel 容器（支援摺疊）────────────────────────────────────────────────────
+function Panel({ title, titleNode, children, extra, warn, collapsible = false, defaultOpen = true }) {
+  const [open, setOpen] = useState(defaultOpen);
+  const hasHeader = title || titleNode || extra;
+  const toggleable = collapsible && hasHeader;
   return (
-    <div style={{ background: warn ? "#1a0a0a" : "#0b1a2e", border: `1px solid ${warn ? "#7f1d1d" : "#1a2f4a"}`, borderRadius: "12px", padding: "10px 12px" }}>
-      {(title || titleNode || extra) && (
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-          {titleNode
-            ? titleNode
-            : title && <span style={{ color: warn ? "#fca5a5" : "#38bdf8", fontWeight: 700, fontSize: "0.72rem", display: "flex", alignItems: "center" }}>{title}</span>}
-          {extra && <span style={{ fontSize: "0.65rem", color: "#475569" }}>{extra}</span>}
+    <div style={{ background: warn ? "#1a0a0a" : "#0b1a2e", border: `1px solid ${warn ? "#7f1d1d" : "#1e3550"}`, borderRadius: "12px", padding: "10px 12px" }}>
+      {hasHeader && (
+        <div
+          onClick={toggleable ? () => setOpen(o => !o) : undefined}
+          style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: open ? "8px" : 0, cursor: toggleable ? "pointer" : "default", userSelect: "none" }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "6px", flex: 1, minWidth: 0 }}>
+            {titleNode
+              ? titleNode
+              : title && <span style={{ color: warn ? "#fca5a5" : "#38bdf8", fontWeight: 700, fontSize: "0.72rem", display: "flex", alignItems: "center" }}>{title}</span>}
+            {extra && <span style={{ fontSize: "0.65rem", color: "#64748b" }}>{extra}</span>}
+          </div>
+          {toggleable && (
+            <span style={{ color: "#334155", fontSize: "0.7rem", flexShrink: 0, marginLeft: "6px", transition: "transform 0.2s", display: "inline-block", transform: open ? "rotate(0deg)" : "rotate(-90deg)" }}>▼</span>
+          )}
         </div>
       )}
-      {children}
+      {(!collapsible || open) && children}
     </div>
   );
 }
 
 function Row({ k, v, vc }) {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", borderBottom: "1px solid #0f2035" }}>
-      <span style={{ color: "#475569", fontSize: "0.7rem" }}>{k}</span>
-      <span style={{ fontSize: "0.7rem", fontWeight: 600, color: vc || "#94a3b8" }}>{v || "—"}</span>
+    <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: "1px solid #132030" }}>
+      <span style={{ color: "#7c8fa8", fontSize: "0.7rem" }}>{k}</span>
+      <span style={{ fontSize: "0.7rem", fontWeight: 600, color: vc || "#c0cfe0" }}>{v || "—"}</span>
     </div>
   );
 }
@@ -653,18 +664,19 @@ function useWatchlist() {
 //  Main App
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function App() {
-  const [code, setCode]   = useState("");
-  const [phase, setPhase] = useState("idle");
-  const [stock, setStock] = useState(null);
+  const [code, setCode]       = useState("");
+  const [quickCode, setQuickCode] = useState("");  // 快速換股輸入
+  const [phase, setPhase]     = useState("idle");
+  const [stock, setStock]     = useState(null);
   const [candles, setCandles] = useState([]);
-  const [bb, setBb]       = useState(null);
-  const [rows, setRows]   = useState([]);
-  const [ai, setAi]       = useState(null);
-  const [chip, setChip]   = useState(null);
-  const [sig, setSig]     = useState(null);
+  const [bb, setBb]           = useState(null);
+  const [rows, setRows]       = useState([]);
+  const [ai, setAi]           = useState(null);
+  const [chip, setChip]       = useState(null);
+  const [sig, setSig]         = useState(null);
   const [chipAnalysis, setChipAnalysis] = useState(null);
-  const [err, setErr]     = useState("");
-  const [source, setSource] = useState("");
+  const [err, setErr]         = useState("");
+  const [source, setSource]   = useState("");
   const watchlist = useWatchlist();
 
   const run = async (overrideCode) => {
@@ -805,46 +817,67 @@ export default function App() {
     <div style={{ minHeight: "100vh", background: "#020b18", color: "#f1f5f9", fontSize: "12px", padding: "6px", paddingTop: "max(6px, env(safe-area-inset-top))", paddingBottom: "max(20px, env(safe-area-inset-bottom))" }}>
 
       {/* ── Header ── */}
-      <div style={{ background: "#0b1a2e", border: "1px solid #1a2f4a", borderRadius: "12px", padding: "10px 14px", marginBottom: "7px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+      <div style={{ background: "#0b1a2e", border: "1px solid #1e3550", borderRadius: "12px", padding: "10px 14px", marginBottom: "5px" }}>
+        {/* 麵包屑導覽列 */}
+        <div style={{ fontSize: "0.62rem", color: "#334155", marginBottom: "8px", display: "flex", alignItems: "center", gap: "5px" }}>
           <button onClick={() => { setPhase("idle"); setStock(null); setAi(null); setChip(null); setChipAnalysis(null); }}
-            style={{ background: "none", border: "1px solid #1a2f4a", borderRadius: "6px", color: "#64748b", padding: "4px 10px", cursor: "pointer", fontSize: "0.7rem" }}>← 返回</button>
-          {/* ⭐ 自選股按鈕 */}
-          <button
-            onClick={() => watchlist.toggle(stock.code, stock.name)}
-            title={inWatch ? "從自選股移除" : "加入自選股"}
-            style={{ background: inWatch ? "rgba(251,191,36,0.15)" : "none", border: `1px solid ${inWatch ? "#fbbf24" : "#1a2f4a"}`, borderRadius: "6px", color: inWatch ? "#fbbf24" : "#475569", padding: "4px 8px", cursor: "pointer", fontSize: "0.85rem", lineHeight: 1 }}>
-            {inWatch ? "★" : "☆"}
-          </button>
-          <div>
-            <span style={{ fontSize: "1.2rem", fontWeight: 900 }}>{stock.name}</span>
-            <span style={{ color: "#334155", margin: "0 5px", fontSize: "0.78rem" }}>{stock.code}</span>
-            <span style={{ fontSize: "0.62rem", background: "#0f2035", color: "#475569", padding: "2px 6px", borderRadius: "4px" }}>{stock.exchange}</span>
-            <span style={{ marginLeft: "5px", fontSize: "0.6rem", background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.3)", color: "#4ade80", padding: "1px 5px", borderRadius: "4px" }}>{source}</span>
-          </div>
+            style={{ background: "none", border: "none", color: "#475569", cursor: "pointer", fontSize: "0.62rem", padding: 0, textDecoration: "underline" }}>🏠 首頁</button>
+          <span style={{ color: "#1e3550" }}>›</span>
+          <span style={{ color: "#64748b" }}>{stock.exchange}</span>
+          <span style={{ color: "#1e3550" }}>›</span>
+          <span style={{ color: "#94a3b8", fontWeight: 600 }}>{stock.name}（{stock.code}）</span>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          <div>
-            <div style={{ fontSize: "1.7rem", fontWeight: 900, color: PC, lineHeight: 1.1 }}>{f(stock.price)}</div>
-            <div style={{ background: PBG, color: PC, borderRadius: "5px", padding: "1px 7px", fontSize: "0.7rem", fontWeight: 700 }}>
-              {stock.isUp ? "▲" : "▼"} {f(Math.abs(stock.change))} ({f(stock.changePct)}%)
+
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            {/* ⭐ 自選股按鈕 */}
+            <button
+              onClick={() => watchlist.toggle(stock.code, stock.name)}
+              title={inWatch ? "從自選股移除" : "加入自選股"}
+              style={{ background: inWatch ? "rgba(251,191,36,0.15)" : "none", border: `1px solid ${inWatch ? "#fbbf24" : "#1e3550"}`, borderRadius: "6px", color: inWatch ? "#fbbf24" : "#475569", padding: "5px 9px", cursor: "pointer", fontSize: "0.9rem", lineHeight: 1 }}>
+              {inWatch ? "★" : "☆"}
+            </button>
+            <div>
+              <span style={{ fontSize: "1.2rem", fontWeight: 900 }}>{stock.name}</span>
+              <span style={{ color: "#475569", margin: "0 5px", fontSize: "0.78rem" }}>{stock.code}</span>
+              <span style={{ fontSize: "0.62rem", background: "#0f2035", color: "#64748b", padding: "2px 6px", borderRadius: "4px" }}>{stock.exchange}</span>
+              <span style={{ marginLeft: "5px", fontSize: "0.6rem", background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.3)", color: "#4ade80", padding: "1px 5px", borderRadius: "4px" }}>{source}</span>
             </div>
           </div>
-          <div style={{ borderLeft: "1px solid #1a2f4a", paddingLeft: "12px", color: "#334155", fontSize: "0.66rem", lineHeight: 2 }}>
-            <div>開 <b style={{ color: "#94a3b8" }}>{f(stock.open)}</b></div>
-            <div>高 <b style={{ color: "#f87171" }}>{f(stock.high)}</b>　低 <b style={{ color: "#4ade80" }}>{f(stock.low)}</b></div>
-            <div>量 <b style={{ color: "#94a3b8" }}>{(stock.vol || 0).toLocaleString()} 張</b></div>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+            {/* 快速換股搜尋框 */}
+            <form onSubmit={e => { e.preventDefault(); const c = quickCode.trim().replace(/\D/g,""); if (c) { run(c); setQuickCode(""); } }}
+              style={{ display: "flex", gap: "4px" }}>
+              <input
+                value={quickCode} onChange={e => setQuickCode(e.target.value)}
+                placeholder="換股 代碼" inputMode="numeric"
+                style={{ width: "80px", padding: "5px 8px", borderRadius: "7px", background: "#0f2035", border: "1px solid #1e3550", color: "#e2e8f0", fontSize: "0.72rem", outline: "none", textAlign: "center" }}
+              />
+              <button type="submit"
+                style={{ padding: "5px 10px", borderRadius: "7px", background: "#1e3a5f", border: "none", color: "#60a5fa", fontSize: "0.72rem", cursor: "pointer", fontWeight: 700 }}>→</button>
+            </form>
+            <div>
+              <div style={{ fontSize: "1.7rem", fontWeight: 900, color: PC, lineHeight: 1.1 }}>{f(stock.price)}</div>
+              <div style={{ background: PBG, color: PC, borderRadius: "5px", padding: "1px 7px", fontSize: "0.7rem", fontWeight: 700 }}>
+                {stock.isUp ? "▲" : "▼"} {f(Math.abs(stock.change))} ({f(stock.changePct)}%)
+              </div>
+            </div>
+            <div style={{ borderLeft: "1px solid #1e3550", paddingLeft: "12px", color: "#64748b", fontSize: "0.66rem", lineHeight: 2 }}>
+              <div>開 <b style={{ color: "#c0cfe0" }}>{f(stock.open)}</b></div>
+              <div>高 <b style={{ color: "#f87171" }}>{f(stock.high)}</b>　低 <b style={{ color: "#4ade80" }}>{f(stock.low)}</b></div>
+              <div>量 <b style={{ color: "#c0cfe0" }}>{(stock.vol || 0).toLocaleString()} 張</b></div>
+            </div>
           </div>
         </div>
       </div>
 
       {/* ── MA + BB 圖例 ── */}
       <div style={{ display: "flex", gap: "12px", marginBottom: "6px", paddingLeft: "3px", fontSize: "0.66rem", flexWrap: "wrap", alignItems: "center" }}>
-        <span style={{ color: "#334155" }}>日K線</span>
+        <span style={{ color: "#475569" }}>日K線</span>
         <span style={{ color: "#f59e0b" }}>MA5 {f(stock.ma5)}</span>
         <span style={{ color: "#60a5fa" }}>MA20 {f(stock.ma20)}</span>
         <span style={{ color: "#c084fc" }}>MA60 {f(stock.ma60)}</span>
-        <span style={{ color: "#64748b" }}>- - BB(20)</span>
+        <span style={{ color: "#64748b" }}>╌ BB(20)</span>
       </div>
 
       {/* ── Main grid ── */}
@@ -864,40 +897,46 @@ export default function App() {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "7px" }}>
             {/* RSI Panel with Tooltip */}
             <Panel
+              collapsible
               titleNode={
                 <span style={{ color: "#38bdf8", fontWeight: 700, fontSize: "0.72rem", display: "flex", alignItems: "center" }}>
-                  RSI(14) {f(stock.rsi, 1)}
+                  RSI {f(stock.rsi, 1)}
                   <InfoTip text="相對強弱指數（0-100）。＞70 超買（紅線），短線過熱；＜30 超賣（綠線），可能反彈。一般 50 以上偏多，50 以下偏空。" />
                 </span>
               }
               extra={stock.rsi > 70 ? "⚠️超買" : stock.rsi < 30 ? "💡超賣" : ""}
             >
-              <ResponsiveContainer width="100%" height={62}>
+              <ResponsiveContainer width="100%" height={72}>
                 <LineChart data={rows}>
-                  <XAxis dataKey="date" hide /><YAxis domain={[0, 100]} hide />
+                  <XAxis dataKey="date" hide />
+                  <YAxis domain={[0, 100]} hide />
                   <ReferenceLine y={70} stroke="#ef444440" strokeDasharray="3 2" />
+                  <ReferenceLine y={50} stroke="#1e3550"   strokeDasharray="2 4" />
                   <ReferenceLine y={30} stroke="#22c55e40" strokeDasharray="3 2" />
-                  <Line type="monotone" dataKey="rsi" stroke="#f59e0b" dot={false} strokeWidth={1.5} connectNulls isAnimationActive={false} />
+                  <Line type="monotone" dataKey="rsi" stroke="#f59e0b" dot={false} strokeWidth={1.8} connectNulls isAnimationActive={false} />
                 </LineChart>
               </ResponsiveContainer>
             </Panel>
 
             {/* KD Panel with Tooltip */}
             <Panel
+              collapsible
               titleNode={
                 <span style={{ color: "#38bdf8", fontWeight: 700, fontSize: "0.72rem", display: "flex", alignItems: "center" }}>
-                  KD K:{f(stock.kdK,1)} D:{f(stock.kdD,1)}
+                  KD {f(stock.kdK,1)}/{f(stock.kdD,1)}
                   <InfoTip text="隨機指標（0-100）。K 線（黃）向上穿越 D 線（藍）為黃金交叉買訊；向下穿越為死亡交叉賣訊。K＞80 高檔鈍化，K＜20 低檔超賣。" />
                 </span>
               }
             >
-              <ResponsiveContainer width="100%" height={62}>
+              <ResponsiveContainer width="100%" height={72}>
                 <LineChart data={rows}>
-                  <XAxis dataKey="date" hide /><YAxis domain={[0, 100]} hide />
+                  <XAxis dataKey="date" hide />
+                  <YAxis domain={[0, 100]} hide />
                   <ReferenceLine y={80} stroke="#ef444440" strokeDasharray="3 2" />
+                  <ReferenceLine y={50} stroke="#1e3550"   strokeDasharray="2 4" />
                   <ReferenceLine y={20} stroke="#22c55e40" strokeDasharray="3 2" />
-                  <Line type="monotone" dataKey="kdK" stroke="#f59e0b" dot={false} strokeWidth={1.5} connectNulls isAnimationActive={false} />
-                  <Line type="monotone" dataKey="kdD" stroke="#60a5fa" dot={false} strokeWidth={1.5} connectNulls isAnimationActive={false} />
+                  <Line type="monotone" dataKey="kdK" stroke="#f59e0b" dot={false} strokeWidth={1.8} connectNulls isAnimationActive={false} />
+                  <Line type="monotone" dataKey="kdD" stroke="#60a5fa" dot={false} strokeWidth={1.8} connectNulls isAnimationActive={false} />
                 </LineChart>
               </ResponsiveContainer>
             </Panel>
@@ -905,9 +944,10 @@ export default function App() {
 
           {/* MACD Panel with Tooltip */}
           <Panel
+            collapsible
             titleNode={
               <span style={{ color: "#38bdf8", fontWeight: 700, fontSize: "0.72rem", display: "flex", alignItems: "center" }}>
-                MACD DIF:{f(stock.dif,2)} DEA:{f(stock.dea,2)}
+                MACD {f(stock.dif,2)}/{f(stock.dea,2)}
                 <InfoTip text="指數平滑移動平均線。DIF（黃）＞DEA（藍）且柱狀體（紅）為正，代表多頭擴張；反之為空頭。DIF 由負轉正是重要買訊。" />
               </span>
             }
@@ -925,7 +965,7 @@ export default function App() {
             </ResponsiveContainer>
           </Panel>
 
-          <Panel title="技術面結論">
+          <Panel title="技術面結論" collapsible>
             <div style={{ color: "#94a3b8", lineHeight: 1.7, fontSize: "0.7rem" }}>{ai.techConclude}</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginTop: "6px" }}>
               {[["趨勢", ai.trend, trendColor], ["MA", ai.maStatus, "#fbbf24"], ["KD", ai.kdStatus, null], ["MACD", ai.macdStatus, null], ["量能", ai.volStatus, null]].map(([k, v, vc]) => (
@@ -993,7 +1033,7 @@ export default function App() {
             )}
           </Panel>
 
-          <Panel title="技術分析總覽">
+          <Panel title="技術分析總覽" collapsible>
             {[
               ["趨勢方向",     ai.trend,     trendColor],
               ["短期均線(MA5)",  f(stock.ma5),  "#f59e0b"],
@@ -1020,7 +1060,7 @@ export default function App() {
             </div>
           </Panel>
 
-          <Panel title="成交量分析（盤後）">
+          <Panel title="成交量分析（盤後）" collapsible>
             <Row k="成交量"   v={`${(stock.vol || 0).toLocaleString()} 張`} />
             <Row k="5日均量"  v={`${Math.round(candles.slice(-6, -1).reduce((s, c) => s + (c.volume || 0), 0) / 5).toLocaleString()} 張`} />
             <Row k="量價判讀" v={ai.volStatus} vc={ai.volStatus.includes("上漲") ? "#f87171" : ai.volStatus.includes("下跌") ? "#4ade80" : "#fbbf24"} />
@@ -1065,7 +1105,7 @@ export default function App() {
             </div>
           </Panel>
 
-          <Panel title="可能路徑">
+          <Panel title="可能路徑" collapsible>
             {[
               { no: "①", label: "上漲路徑", cond: ai.path1cond, dir: "→ 挑戰", target: ai.path1target, clr: "#f87171" },
               { no: "②", label: "回檔路徑", cond: ai.path2cond, dir: "→ 回測", target: ai.path2target, clr: "#fbbf24" },
