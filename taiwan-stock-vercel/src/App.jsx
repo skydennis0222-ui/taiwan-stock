@@ -1196,32 +1196,40 @@ export default function App() {
       </div>
 
       {/* ── TOP SECTION: 3 columns ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "200px 1fr 230px", gap: "7px", padding: "7px 10px 5px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "400px 1fr 230px", gap: "7px", padding: "7px 10px 5px" }}>
 
         {/* LEFT: Company */}
-        <div style={{ background: "#060e1b", border: "1px solid #0e2438", borderRadius: "10px", padding: "10px" }}>
-          <div style={{ color: "#38bdf8", fontWeight: 700, fontSize: "0.68rem", marginBottom: "6px", borderBottom: "1px solid #0e2438", paddingBottom: "4px" }}>
-            主要經營項目
+        <div style={{ background: "#060e1b", border: "1px solid #0e2438", borderRadius: "10px", padding: "14px 16px" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px", borderBottom: "1px solid #0e2438", paddingBottom: "7px" }}>
+            <div style={{ color: "#38bdf8", fontWeight: 700, fontSize: "0.82rem" }}>公司主要經營項目</div>
+            <div style={{ fontSize: "0.6rem", background: "#0a1828", border: "1px solid #1a3554", borderRadius: "5px", padding: "2px 8px", color: "#475569" }}>{industry || "電子科技產業"}</div>
           </div>
-          <div style={{ color: "#334155", fontSize: "0.6rem", marginBottom: "4px" }}>{industry || "電子科技產業"}</div>
-          <div style={{ color: "#64748b", fontSize: "0.64rem", lineHeight: 1.55, marginBottom: "10px" }}>
+
+          {/* Description */}
+          <div style={{ color: "#64748b", fontSize: "0.72rem", lineHeight: 1.65, marginBottom: "12px", padding: "6px 10px", background: "#020b18", borderRadius: "7px", border: "1px solid #0e2438" }}>
             ▶ {indInfo.desc}
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "5px", marginBottom: "10px" }}>
+
+          {/* Product items: 2x2 grid, bigger cells */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "12px" }}>
             {indInfo.items.map((item, i) => (
-              <div key={i} style={{ background: "#0a1828", borderRadius: "6px", padding: "6px 5px", textAlign: "center", border: "1px solid #1a3554" }}>
-                <div style={{ fontSize: "0.6rem", color: "#475569" }}>{item}</div>
+              <div key={i} style={{ background: "#0a1828", borderRadius: "8px", padding: "12px 10px", textAlign: "center", border: "1px solid #1a3554", display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" }}>
+                <div style={{ fontSize: "0.72rem", color: "#94a3b8", fontWeight: 600 }}>{item}</div>
               </div>
             ))}
           </div>
-          {/* Signal box */}
-          <div style={{ background: "#020b18", borderRadius: "7px", padding: "7px 8px", border: `1px solid ${sig?.color || "#1a3554"}40` }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "2px" }}>
-              <span style={{ color: "#334155", fontSize: "0.58rem" }}>綜合訊號</span>
-              <span style={{ color: sig?.color, fontWeight: 900, fontSize: "1.2rem", lineHeight: 1 }}>{sig?.char}</span>
+
+          {/* Signal box — wider layout */}
+          <div style={{ background: "#020b18", borderRadius: "8px", padding: "10px 14px", border: `1px solid ${sig?.color || "#1a3554"}50`, display: "flex", alignItems: "center", gap: "14px" }}>
+            <div style={{ fontSize: "2.2rem", fontWeight: 900, color: sig?.color, lineHeight: 1, flexShrink: 0,
+              textShadow: `0 0 20px ${sig?.color}80`, border: `2px solid ${sig?.color}60`, borderRadius: "8px", padding: "2px 14px", background: `${sig?.color}18` }}>
+              {sig?.char}
             </div>
-            <div style={{ color: sig?.color, fontSize: "0.65rem", fontWeight: 700 }}>{sig?.action}</div>
-            <div style={{ color: "#334155", fontSize: "0.56rem", marginTop: "1px" }}>{sig?.subtitle}</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ color: sig?.color, fontSize: "0.8rem", fontWeight: 700, marginBottom: "2px" }}>{sig?.action}</div>
+              <div style={{ color: "#64748b", fontSize: "0.65rem", marginBottom: "2px" }}>{sig?.desc}</div>
+              <div style={{ color: "#334155", fontSize: "0.6rem" }}>{sig?.subtitle}</div>
+            </div>
           </div>
         </div>
 
