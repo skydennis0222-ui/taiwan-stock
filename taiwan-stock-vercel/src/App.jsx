@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   ComposedChart, Bar, Line, XAxis, YAxis,
   ReferenceLine, ResponsiveContainer, Cell, Tooltip,
@@ -553,6 +553,16 @@ const fv = (v, d = 2) => v != null && !isNaN(v) ? Number(v).toFixed(d) : "—";
 const numColor = v => v > 0 ? "#f87171" : v < 0 ? "#4ade80" : "#94a3b8";
 const numFmt   = v => v === 0 ? "0" : v > 0 ? `+${v.toLocaleString()}` : v.toLocaleString();
 
+function useIsMobile(breakpoint = 768) {
+  const [isMobile, setIsMobile] = useState(() => typeof window !== "undefined" && window.innerWidth < breakpoint);
+  useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth < breakpoint);
+    window.addEventListener("resize", handler);
+    return () => window.removeEventListener("resize", handler);
+  }, [breakpoint]);
+  return isMobile;
+}
+
 function useWatchlist() {
   const [list, setList] = useState(() => {
     try { return JSON.parse(localStorage.getItem("watchlist") || "[]"); } catch { return []; }
@@ -1018,7 +1028,8 @@ export default function App() {
   const [industry, setIndustry]     = useState("");
   const [err, setErr]               = useState("");
   const [source, setSource]         = useState("");
-  const watchlist = useWatchlist();
+  const watchlist  = useWatchlist();
+  const isMobile   = useIsMobile();
   const periodCandles = { "1m": 22, "3m": 65, "6m": 130, "1y": 252 };
 
   const run = async (overrideCode, overridePeriod) => {
@@ -1166,12 +1177,12 @@ export default function App() {
       <div style={{ background: "#030d1c", borderBottom: "1px solid #0e2438", padding: "8px 14px 6px" }}>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <h1 style={{ fontSize: "1.45rem", fontWeight: 900, color: "#f1f5f9", lineHeight: 1.15, marginBottom: "2px" }}>
+            <h1 style={{ fontSize: isMobile ? "0.95rem" : "1.45rem", fontWeight: 900, color: "#f1f5f9", lineHeight: 1.15, marginBottom: "2px" }}>
               {stock.name}（{stock.code}）{headline}
             </h1>
             <div style={{ color: "#475569", fontSize: "0.72rem" }}>{subtitle}</div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
             <form onSubmit={e => { e.preventDefault(); const c = quickCode.trim().replace(/\D/g,""); if (c) { run(c); setQuickCode(""); } }} style={{ display: "flex", gap: "3px" }}>
               <input value={quickCode} onChange={e => setQuickCode(e.target.value)} placeholder="換股" inputMode="numeric"
                 style={{ width: "65px", padding: "4px 7px", borderRadius: "6px", background: "#060e1b", border: "1px solid #1a3554", color: "#e2e8f0", fontSize: "0.7rem", outline: "none", textAlign: "center" }} />
@@ -1196,7 +1207,7 @@ export default function App() {
       </div>
 
       {/* ── TOP SECTION: 3 columns ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "400px 1fr 230px", gap: "7px", padding: "7px 10px 5px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "400px 1fr 230px", gap: "7px", padding: "7px 10px 5px" }}>
 
         {/* LEFT: Company */}
         <div style={{ background: "#060e1b", border: "1px solid #0e2438", borderRadius: "10px", padding: "14px 16px" }}>
@@ -1279,7 +1290,7 @@ export default function App() {
       </div>
 
       {/* ── BOTTOM: 7 panels ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: "6px", padding: "0 10px 8px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(7,1fr)", gap: "6px", padding: "0 10px 8px" }}>
         <PanelBox num={1} title="三大法人進出（10日）"
           conclude={chipAnalysis ? `${chipAnalysis.foreign5 > 0 ? "外資連買超，" : "外資賣超，"}法人資金${chipAnalysis.total5 > 0 ? "積極回補！" : "持續觀察"}` : "法人資料載入中..."}>
           <InstitutionalPanel instData={instData} />
